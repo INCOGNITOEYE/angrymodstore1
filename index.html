@@ -7,7 +7,7 @@
 <title>ANGRY MOD — Premium Store</title>
 <style>
 :root{--bg:#09050f;--ink:#faf7ff;--muted:#b9a9cc;--line:rgba(202,143,255,.18);--green:#d8a6ff;--green-ink:#210d36;--glass:rgba(116,48,180,.09)}
-*{box-sizing:border-box}[hidden]{display:none!important}
+*{box-sizing:border-box}
 html{scroll-behavior:auto;overflow:hidden;height:100%;overscroll-behavior:none}
 body{margin:0;overflow:hidden;height:100%;overscroll-behavior:none;touch-action:pan-x;background:radial-gradient(ellipse at 50% -10%,rgba(148,40,255,.22),transparent 43%),radial-gradient(ellipse at 100% 55%,rgba(91,22,157,.16),transparent 33%),radial-gradient(ellipse at 0% 80%,rgba(80,24,142,.12),transparent 35%),#09050f;color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:18px 14px 40px}
 .page{max-width:820px;margin:0 auto;height:100dvh;overflow:hidden;display:flex;flex-direction:column;gap:10px}
@@ -181,6 +181,11 @@ footer{text-align:center;color:#717b8b;font-size:.78rem;line-height:1.8;padding:
   }
 }
 
+
+.payment-loading{display:flex;align-items:center;justify-content:center;gap:11px;margin:14px auto 8px;padding:12px 14px;border:1px solid rgba(194,153,255,.28);border-radius:14px;background:rgba(165,107,255,.09);color:#e8d5ff;font-weight:700;font-size:14px}
+.payment-loading[hidden]{display:none!important}
+.payment-spinner{width:19px;height:19px;border:2.5px solid rgba(232,213,255,.28);border-top-color:#d5a2ff;border-radius:50%;animation:paymentSpin .75s linear infinite;flex:0 0 auto}
+@keyframes paymentSpin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -237,6 +242,7 @@ footer{text-align:center;color:#717b8b;font-size:.78rem;line-height:1.8;padding:
     <div class="delivery-kicker">ANGRY MOD · ORDER STATUS</div>
     <h2 id="deliveryTitle">Order Status</h2>
     <p class="delivery-desc">Complete payment in the checkout tab, then return here and verify your payment.</p>
+    <div class="payment-loading" id="paymentLoading" role="status" aria-live="polite" hidden><span class="payment-spinner" aria-hidden="true"></span><span id="paymentLoadingText">Waiting for checkout…</span></div>
     <div class="delivery-status"><span></span> PAYMENT NOT VERIFIED</div>
     <div class="key-box" id="deliveredKeyBox" hidden>
       <div class="key-label">YOUR ACCESS KEY</div>
@@ -323,6 +329,10 @@ function setOrderStatus(status,description,title){
  document.querySelector('.delivery-status').innerHTML='<span></span> '+status;
  document.querySelector('.delivery-desc').textContent=description;
 }
+function setPaymentLoading(show,text='Confirming payment securely…'){
+ const el=document.getElementById('paymentLoading');if(!el)return;
+ el.hidden=!show;const label=document.getElementById('paymentLoadingText');if(label)label.textContent=text;
+}
 function ensureCancelButton(){
  let b=document.getElementById('cancelPaymentButton');if(b)return b;
  b=document.createElement('button');b.id='cancelPaymentButton';b.type='button';b.className='delivery-done';b.style.marginTop='9px';b.textContent='CANCEL PAYMENT';
@@ -333,7 +343,7 @@ function showPending(order){
  document.getElementById('deliveryCard').classList.remove('cancelled');document.querySelector('.delivery-check').textContent='✓';
  verifyButton.hidden=true;
  currentOrder=order;
- try{sessionStorage.setItem('angryModPendingOrder',JSON.stringify(order))}catch(e){}
+ try{sessionStorage.setItem('angryModPendingOrder',JSON.stringify(order));localStorage.setItem('angryModPendingOrder',JSON.stringify(order))}catch(e){}
  document.getElementById('deliveryTitle').textContent='Order Status';
  document.getElementById('deliveryCard').classList.remove('cancelled');document.querySelector('.delivery-check').textContent='✓';
  document.getElementById('deliveredKey').textContent='Not issued yet';
@@ -342,6 +352,7 @@ function showPending(order){
  document.getElementById('deliveredKeyBox').hidden=true;
  purchaseApkButton.hidden=true;
  setOrderStatus('PAYMENT NOT VERIFIED','Finish payment in the checkout tab. Your key will appear here automatically after the server confirms payment.','Order Status');
+ setPaymentLoading(true,'Waiting for checkout payment…');
  document.querySelector('.delivery-note').textContent='No key is issued until the server confirms payment.';
  ensureCancelButton().hidden=true;
  deliveryOverlay.classList.add('open');deliveryOverlay.setAttribute('aria-hidden','false');
@@ -372,26 +383,26 @@ async function createOrder(){
 }
 function markCancelled(userAction=false){
  if(!currentOrder)return;
- returnFromCheckout=false;
+ returnFromCheckout=false;setPaymentLoading(false);
  const card=document.getElementById('deliveryCard');card.classList.add('cancelled');
  document.querySelector('.delivery-check').textContent='×';
  setOrderStatus('PAYMENT CANCELLED ❌','Payment was not confirmed. No license key was issued. If you completed payment, the page will keep checking and update automatically once the server confirms it.','Purchase Cancelled');
  document.querySelector('.delivery-note').textContent='Purchase cancelled. No key has been issued.';
  verifyButton.hidden=true;ensureCancelButton().hidden=true;
- if(userAction)notify('Purchase cancelled.');
+ if(userAction){try{sessionStorage.removeItem('angryModPendingOrder');localStorage.removeItem('angryModPendingOrder')}catch(e){};clearInterval(pollTimer);pollTimer=null;currentOrder=null;notify('Purchase cancelled.');}
 }
 async function verifyPayment(options={}){
  const automatic=!!options.automatic;
  if(verifyInFlight)return;
  if(!currentOrder){try{currentOrder=JSON.parse(sessionStorage.getItem('angryModPendingOrder')||'null')}catch(e){}}
  if(!currentOrder?.order_id){if(!automatic)notify('No pending order found. Tap BUY NOW first.');return;}
- verifyInFlight=true;if(!automatic)setBusy(true);
+ verifyInFlight=true;if(!automatic)setBusy(true);setPaymentLoading(true,automatic?'Checking payment securely…':'Verifying payment securely…');
  try{
   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),12000);
   let response;try{response=await fetch('/api/verify-payment',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({order_id:currentOrder.order_id}),signal:controller.signal,cache:'no-store'});}finally{clearTimeout(timeout)}
   const data=await response.json().catch(()=>({}));
   if(response.ok&&data.success&&data.license_key){
-   document.getElementById('deliveryCard').classList.remove('cancelled');document.querySelector('.delivery-check').textContent='✓';
+   setPaymentLoading(false);document.getElementById('deliveryCard').classList.remove('cancelled');document.querySelector('.delivery-check').textContent='✓';
    document.getElementById('deliveryTitle').textContent='Purchase Complete';
    document.getElementById('deliveredKey').textContent=data.license_key;
    document.getElementById('deliveredPlan').textContent=`Package: ${data.duration||currentOrder.duration}`;
@@ -403,19 +414,19 @@ async function verifyPayment(options={}){
    let saved=[];try{saved=JSON.parse(localStorage.getItem(purchasedKeysKey)||'[]');if(!Array.isArray(saved))saved=[]}catch(e){}
    if(!saved.some(x=>x.order_id===data.order_id))saved.unshift({order_id:data.order_id,key:data.license_key,plan:data.duration||currentOrder.duration,date:new Date().toLocaleString(),purchasedAt:new Date().toISOString(),status:'PAYMENT VERIFIED'});
    try{localStorage.setItem(purchasedKeysKey,JSON.stringify(saved))}catch(e){}
-   try{sessionStorage.removeItem('angryModPendingOrder')}catch(e){}
+   try{sessionStorage.removeItem('angryModPendingOrder');localStorage.removeItem('angryModPendingOrder')}catch(e){}
    clearInterval(pollTimer);pollTimer=null;currentOrder=null;renderKeys();notify('Payment verified and key delivered automatically.');return;
   }
   if(data.payment_status==='expired'||data.payment_status==='cancelled'){
-   markCancelled(false);clearInterval(pollTimer);pollTimer=null;return;
+   setPaymentLoading(false);markCancelled(false);clearInterval(pollTimer);pollTimer=null;return;
   }
   if(data.payment_status==='pending'||response.ok&&data.success===false){
-   if(returnFromCheckout){pendingReturnChecks++;if(pendingReturnChecks>=2)markCancelled(false);}
+   setPaymentLoading(true,'Payment detected? Waiting for server confirmation…');
    if(!automatic)notify('Payment is not confirmed yet. We will keep checking automatically.');
    return;
   }
   if(!automatic)notify(data.message||data.error||'Payment is not verified yet. We will retry automatically.');
- }catch(e){if(!automatic)notify(e.name==='AbortError'?'Verification is taking too long; retrying automatically.':(e.message||'Verification failed; retrying automatically.'));}
+ }catch(e){setPaymentLoading(true,'Connection slow — retrying payment check…');if(!automatic)notify(e.name==='AbortError'?'Verification is taking too long; retrying automatically.':(e.message||'Verification failed; retrying automatically.'));}
  finally{verifyInFlight=false;if(!automatic)setBusy(false)}
 }
 function startAutoVerify(){
@@ -457,8 +468,10 @@ function closeKeys(){keysPage.classList.remove('open');keysPage.setAttribute('ar
 document.getElementById('storeToggle').addEventListener('click',openKeys);document.getElementById('backStore').addEventListener('click',closeKeys);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&currentOrder){returnFromCheckout=true;pendingReturnChecks=0;verifyPayment({automatic:true});}});
 window.addEventListener('pageshow',()=>{if(currentOrder){returnFromCheckout=true;pendingReturnChecks=0;verifyPayment({automatic:true});}});
-try{currentOrder=JSON.parse(sessionStorage.getItem('angryModPendingOrder')||'null')}catch(e){}
-renderKeys();loadStoreConfig().then(()=>{if(currentOrder){deliveryOverlay.classList.add('open');deliveryOverlay.setAttribute('aria-hidden','false');startAutoVerify();}});
+try{currentOrder=JSON.parse(sessionStorage.getItem('angryModPendingOrder')||localStorage.getItem('angryModPendingOrder')||'null')}catch(e){}
+const paymentReturn=new URLSearchParams(window.location.search).has('payment_return');
+if(paymentReturn){history.replaceState({},document.title,window.location.pathname+window.location.hash);}
+renderKeys();loadStoreConfig().then(()=>{if(currentOrder){deliveryOverlay.classList.add('open');deliveryOverlay.setAttribute('aria-hidden','false');setPaymentLoading(true,paymentReturn?'Payment returned — confirming securely…':'Checking your pending order…');startAutoVerify();}});
 </script>
 </body>
 </html>
