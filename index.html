@@ -219,7 +219,7 @@ footer{text-align:center;color:#717b8b;font-size:.78rem;line-height:1.8;padding:
     <p>Your purchased access keys, newest first.</p>
   </div>
   <div class="keys-list" id="keysList"></div>
-  <p class="keys-footnote">Demo entries are shown for preview. Real purchased keys will appear here after secure payment verification by the website backend.</p>
+  <p class="keys-footnote">Only verified purchases appear here.</p>
 </section>
 
 </main>
@@ -230,102 +230,131 @@ footer{text-align:center;color:#717b8b;font-size:.78rem;line-height:1.8;padding:
     <div class="delivery-check">✓</div>
     <div class="delivery-kicker">ANGRY MOD · ORDER STATUS</div>
     <h2 id="deliveryTitle">Purchase Complete</h2>
-    <p class="delivery-desc">Your access key is ready. Save it somewhere safe.</p>
-    <div class="delivery-status"><span></span> PAYMENT VERIFIED · DEMO</div>
-    <div class="key-box">
+    <p class="delivery-desc">Complete payment in the checkout tab, then return here and verify your payment.</p>
+    <div class="delivery-status"><span></span> PAYMENT NOT VERIFIED</div>
+    <div class="key-box" id="deliveredKeyBox" hidden>
       <div class="key-label">YOUR ACCESS KEY</div>
       <code id="deliveredKey">DEMO-AM-1DAY-XXXX</code>
       <button id="copyKey" class="copy-key">Copy Key</button>
     </div>
-    <a class="purchase-apk-button" id="purchaseApkButton" href="#" aria-disabled="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M7.2 3.1 5.7 1.2a.55.55 0 0 0-.86.68l1.55 1.96A7.1 7.1 0 0 0 4 5.4h16a7.1 7.1 0 0 0-2.39-1.56l1.55-1.96a.55.55 0 1 0-.86-.68l-1.5 1.9a10.8 10.8 0 0 0-9.6 0ZM8 7.2a.8.8 0 1 1 0-1.6.8.8 0 0 1 0 1.6Zm8 0a.8.8 0 1 1 0-1.6.8.8 0 0 1 0 1.6ZM3 7.2h18v9.3a2 2 0 0 1-2 2h-1.2v2.1a1.4 1.4 0 0 1-2.8 0v-2.1H9v2.1a1.4 1.4 0 0 1-2.8 0v-2.1H5a2 2 0 0 1-2-2V7.2Z"/></svg> DOWNLOAD APK</a>
+    <a class="purchase-apk-button" id="purchaseApkButton" href="#" aria-disabled="true" hidden><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M7.2 3.1 5.7 1.2a.55.55 0 0 0-.86.68l1.55 1.96A7.1 7.1 0 0 0 4 5.4h16a7.1 7.1 0 0 0-2.39-1.56l1.55-1.96a.55.55 0 1 0-.86-.68l-1.5 1.9a10.8 10.8 0 0 0-9.6 0ZM8 7.2a.8.8 0 1 1 0-1.6.8.8 0 0 1 0 1.6Zm8 0a.8.8 0 1 1 0-1.6.8.8 0 0 1 0 1.6ZM3 7.2h18v9.3a2 2 0 0 1-2 2h-1.2v2.1a1.4 1.4 0 0 1-2.8 0v-2.1H9v2.1a1.4 1.4 0 0 1-2.8 0v-2.1H5a2 2 0 0 1-2-2V7.2Z"/></svg> DOWNLOAD APK</a>
     <p class="purchase-apk-note" id="purchaseApkNote">Download the app associated with this key.</p>
     <div class="delivery-details"><span id="deliveredPlan">Package: 1 Day</span><strong id="deliveredPrice">₹49</strong></div>
-    <p class="delivery-note">Preview only: this sample key is not a real license. Real checkout and key delivery must be connected to a secure backend.</p>
-    <button class="delivery-done" id="deliveryDone">DONE</button>
+    <p class="delivery-note">A license key will appear only after the server confirms your payment.</p>
+    <button class="delivery-done" id="verifyPaymentButton" type="button">I HAVE PAID — VERIFY</button>
+    <button class="delivery-done" id="deliveryDone" type="button" style="margin-top:9px">CLOSE</button>
   </section>
 </div>
 
 <div class="toast" id="toast" role="status"></div>
 <div class="modal-bg" id="modalBg" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal"><h3 id="modalTitle">Preview Only</h3><p id="modalText">Payment gateway and key delivery are not connected in this visual preview.</p><button id="close">Close</button></div></div>
 <script>
-// Set your official APK download URL here when ready.
-const APK_DOWNLOAD_URL = "PASTE_OFFICIAL_APK_LINK_HERE";
+const APK_DOWNLOAD_URL = "https://drive.google.com/uc?export=download&id=1kfz8Xd5sDWjheaH-Uuzn8mW-qB9Hi9f4";
 const featuredApkButton=document.getElementById('featuredApkButton');
 const purchaseApkButton=document.getElementById('purchaseApkButton');
-function wireApkButton(button){
- if(APK_DOWNLOAD_URL && /^https:\/\//i.test(APK_DOWNLOAD_URL) && !APK_DOWNLOAD_URL.includes('PASTE_OFFICIAL_APK_LINK_HERE')){button.href=APK_DOWNLOAD_URL;button.target='_blank';button.rel='noopener noreferrer';button.removeAttribute('aria-disabled')}
- else {button.addEventListener('click',e=>{e.preventDefault();notify('APK download link has not been added yet')})}
-}
-wireApkButton(featuredApkButton);wireApkButton(purchaseApkButton);
-const cards=[...document.querySelectorAll('.package')], toast=document.getElementById('toast'), modal=document.getElementById('modalBg');
-let selected=cards[0], stockCount=5;
-function notify(msg){toast.textContent=msg;toast.classList.add('show');clearTimeout(notify.t);notify.t=setTimeout(()=>toast.classList.remove('show'),2100)}
-function openModal(title,msg){document.getElementById('modalTitle').textContent=title;document.getElementById('modalText').textContent=msg;modal.classList.add('open')}
-function renderStock(){cards.forEach(c=>{c.querySelector('.badge').textContent=stockCount>0?`STOCK: ${stockCount}`:'OUT OF STOCK';c.disabled=stockCount<=0});document.getElementById('stock').textContent=stockCount>0?`● ${stockCount} IN STOCK`:'OUT OF STOCK';document.getElementById('pay').disabled=stockCount<=0;if(stockCount<=0)document.getElementById('pay').textContent='Out of Stock'}
-cards.forEach(c=>c.addEventListener('click',()=>{if(stockCount<=0)return;cards.forEach(x=>x.classList.remove('selected'));c.classList.add('selected');selected=c;document.getElementById('selection').textContent=`Selected: ${c.dataset.days} Day${c.dataset.days==='1'?'':'s'}`;document.getElementById('total').textContent=`Total: ₹${c.dataset.price}`;notify(`${c.dataset.days}-day package selected`)}));
+const cards=[...document.querySelectorAll('.package')];
+const toast=document.getElementById('toast');
+const modal=document.getElementById('modalBg');
 const deliveryOverlay=document.getElementById('deliveryOverlay');
-function showDelivery(){
-  const newKey=`DEMO-AM-${selected.dataset.days}DAY-${Math.random().toString(36).slice(2,8).toUpperCase()}`;
-  document.getElementById('deliveredKey').textContent=newKey;
-  document.getElementById('deliveredPlan').textContent=`Package: ${selected.dataset.days} Day${selected.dataset.days==='1'?'':'s'}`;
-  document.getElementById('deliveredPrice').textContent=`₹${selected.dataset.price}`;
-  // Preview behavior: put the newest purchase at the top and keep it after refresh.
-  const now=new Date();
-  const purchasedAt=now.toISOString();
-  const stamp=new Intl.DateTimeFormat('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(now);
-  demoKeys.push({key:newKey,plan:`${selected.dataset.days} Day${selected.dataset.days==='1'?'':'s'}`,date:stamp,purchasedAt,status:'DEMO KEY · JUST ADDED'});
-  // Sort by exact purchase time, newest first; package duration is not used for ordering.
-  demoKeys.sort((a,b)=>Date.parse(b.purchasedAt)-Date.parse(a.purchasedAt));
-  try{localStorage.setItem('angryModDemoKeys',JSON.stringify(demoKeys))}catch(e){}
-  renderKeys();
-  deliveryOverlay.classList.add('open');deliveryOverlay.setAttribute('aria-hidden','false');
+const verifyButton=document.getElementById('verifyPaymentButton');
+let selected=cards[0], currentOrder=null, busy=false;
+const purchasedKeysKey='angryModVerifiedKeys';
+function notify(msg){toast.textContent=msg;toast.classList.add('show');clearTimeout(notify.t);notify.t=setTimeout(()=>toast.classList.remove('show'),2600)}
+function openModal(title,msg){document.getElementById('modalTitle').textContent=title;document.getElementById('modalText').textContent=msg;modal.classList.add('open')}
+function wireApkButton(button){button.href=APK_DOWNLOAD_URL;button.target='_blank';button.rel='noopener noreferrer';button.removeAttribute('aria-disabled')}
+wireApkButton(featuredApkButton);
+wireApkButton(purchaseApkButton);
+function renderStock(){
+ cards.forEach(c=>{c.querySelector('.badge').textContent='STOCK STATUS: CHECKOUT';c.disabled=false});
+}
+cards.forEach(c=>c.addEventListener('click',()=>{cards.forEach(x=>x.classList.remove('selected'));c.classList.add('selected');selected=c;notify(`${c.dataset.days}-day package selected`)}));
+function setBusy(value){busy=value;document.getElementById('buyPackage').disabled=value;verifyButton.disabled=value;verifyButton.textContent=value?'PLEASE WAIT…':'I HAVE PAID — VERIFY'}
+function showPending(order){
+ currentOrder=order;
+ try{sessionStorage.setItem('angryModPendingOrder',JSON.stringify(order))}catch(e){}
+ document.getElementById('deliveredKey').textContent='Not issued yet';
+ document.getElementById('deliveredPlan').textContent=`Package: ${order.duration}`;
+ document.getElementById('deliveredPrice').textContent=`₹${order.amount}`;
+ document.getElementById('deliveredKeyBox').hidden=true;
+ purchaseApkButton.hidden=true;
+ document.querySelector('.delivery-status').innerHTML='<span></span> PAYMENT NOT VERIFIED';
+ document.querySelector('.delivery-desc').textContent='Complete payment in the checkout tab, then return here and verify your payment.';
+ document.querySelector('.delivery-note').textContent='No key is issued until the server confirms payment.';
+ deliveryOverlay.classList.add('open');deliveryOverlay.setAttribute('aria-hidden','false');
+}
+async function createOrder(){
+ if(busy)return;
+ setBusy(true);
+ try{
+  const duration=selected.dataset.days==='1'?'1 Day':`${selected.dataset.days} Days`;
+  const response=await fetch('/api/create-order',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({duration})});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok||!data.success||!data.order_id||!data.checkout_url)throw new Error(data.error||'Could not create payment order.');
+  showPending({order_id:data.order_id,duration:data.duration||duration,amount:data.amount||Number(selected.dataset.price)});
+  const win=window.open(data.checkout_url,'_blank','noopener,noreferrer');
+  if(!win){notify('Checkout opened in this tab because pop-ups are blocked.');window.location.href=data.checkout_url;return;}
+  notify('Payment checkout opened. Finish payment, then verify here.');
+ }catch(e){openModal('Payment Could Not Start',e.message||'Please try again later.');}
+ finally{setBusy(false)}
+}
+async function verifyPayment(){
+ if(busy)return;
+ if(!currentOrder){try{currentOrder=JSON.parse(sessionStorage.getItem('angryModPendingOrder')||'null')}catch(e){}}
+ if(!currentOrder?.order_id){notify('No pending order found. Tap BUY NOW first.');return;}
+ setBusy(true);
+ try{
+  const response=await fetch('/api/verify-payment',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({order_id:currentOrder.order_id})});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok||!data.success||!data.license_key){
+   if(data.payment_status==='pending'){notify('Payment is not confirmed yet. Wait a moment and retry.');return;}
+   throw new Error(data.message||data.error||'Payment not verified yet. No key was issued.');
+  }
+  document.getElementById('deliveredKey').textContent=data.license_key;
+  document.getElementById('deliveredPlan').textContent=`Package: ${data.duration||currentOrder.duration}`;
+  document.getElementById('deliveredPrice').textContent=`₹${currentOrder.amount}`;
+  document.getElementById('deliveredKeyBox').hidden=false;
+  purchaseApkButton.hidden=false;
+  document.querySelector('.delivery-status').innerHTML='<span></span> PAYMENT VERIFIED';
+  document.querySelector('.delivery-desc').textContent='Payment confirmed. Your license key is ready.';
+  document.querySelector('.delivery-note').textContent='Keep your key private. Download the APK using the button below.';
+  let saved=[];try{saved=JSON.parse(localStorage.getItem(purchasedKeysKey)||'[]');if(!Array.isArray(saved))saved=[]}catch(e){}
+  if(!saved.some(x=>x.order_id===data.order_id))saved.unshift({order_id:data.order_id,key:data.license_key,plan:data.duration||currentOrder.duration,date:new Date().toLocaleString(),purchasedAt:new Date().toISOString(),status:'PAYMENT VERIFIED'});
+  try{localStorage.setItem(purchasedKeysKey,JSON.stringify(saved))}catch(e){}
+  try{sessionStorage.removeItem('angryModPendingOrder')}catch(e){}
+  renderKeys();notify('Payment verified and key delivered.');
+ }catch(e){notify(e.message||'Verification failed. Retry shortly.');}
+ finally{setBusy(false)}
 }
 function closeDelivery(){deliveryOverlay.classList.remove('open');deliveryOverlay.setAttribute('aria-hidden','true')}
-document.getElementById('buyPackage').addEventListener('click',showDelivery);
+document.getElementById('buyPackage').addEventListener('click',createOrder);
+verifyButton.addEventListener('click',verifyPayment);
 document.getElementById('deliveryClose').addEventListener('click',closeDelivery);
 document.getElementById('deliveryDone').addEventListener('click',closeDelivery);
-document.getElementById('copyKey').addEventListener('click',async()=>{
-  const key=document.getElementById('deliveredKey').textContent;
-  try{await navigator.clipboard.writeText(key);notify('Demo key copied')}catch(e){notify(key)}
-});
+document.getElementById('copyKey').addEventListener('click',async()=>{const key=document.getElementById('deliveredKey').textContent;if(!key||key==='Not issued yet'){notify('No key has been issued yet.');return}try{await navigator.clipboard.writeText(key);notify('License key copied')}catch(e){notify(key)}});
 deliveryOverlay.addEventListener('click',e=>{if(e.target===deliveryOverlay)closeDelivery()});
 document.getElementById('close').addEventListener('click',()=>modal.classList.remove('open'));modal.addEventListener('click',e=>{if(e.target===modal)modal.classList.remove('open')});document.addEventListener('keydown',e=>{if(e.key==='Escape')modal.classList.remove('open')});
-const initialDemoKeys=[
- {key:'DEMO-AM-30D-K7Q9X2',plan:'30 Days',date:'2026-10-20 09:42:00',purchasedAt:'2026-10-20T09:42:00',status:'DEMO KEY'},
- {key:'DEMO-AM-15D-P4M8R1',plan:'15 Days',date:'2026-10-19 18:20:00',purchasedAt:'2026-10-19T18:20:00',status:'DEMO KEY'},
- {key:'DEMO-AM-7D-B6T3N5',plan:'7 Days',date:'2026-10-18 12:05:00',purchasedAt:'2026-10-18T12:05:00',status:'DEMO KEY'},
- {key:'DEMO-AM-1D-H2V9C4',plan:'1 Day',date:'2026-10-17 10:14:00',purchasedAt:'2026-10-17T10:14:00',status:'DEMO KEY'}
-];
-let demoKeys;
-try{const saved=JSON.parse(localStorage.getItem('angryModDemoKeys')||'null');demoKeys=Array.isArray(saved)?saved:initialDemoKeys.slice()}catch(e){demoKeys=initialDemoKeys.slice()}
-demoKeys=demoKeys.map(k=>({...k,purchasedAt:k.purchasedAt||k.date.replace(' ','T')})).sort((a,b)=>Date.parse(b.purchasedAt)-Date.parse(a.purchasedAt));
 const keysPage=document.getElementById('keysPage');
 function renderKeys(){
- const list=document.getElementById('keysList');
- list.innerHTML='';
- [...demoKeys].sort((a,b)=>Date.parse(b.purchasedAt||b.date.replace(' ','T'))-Date.parse(a.purchasedAt||a.date.replace(' ','T'))).forEach((item,index)=>{
+ let saved=[];try{saved=JSON.parse(localStorage.getItem(purchasedKeysKey)||'[]');if(!Array.isArray(saved))saved=[]}catch(e){}
+ const list=document.getElementById('keysList');list.innerHTML='';
+ saved.sort((a,b)=>Date.parse(b.purchasedAt||0)-Date.parse(a.purchasedAt||0)).forEach(item=>{
   const card=document.createElement('article');card.className='key-entry';
   const top=document.createElement('div');top.className='key-entry-top';
-  const plan=document.createElement('div');plan.className='key-plan';plan.textContent=item.plan+' Package';
-  const date=document.createElement('div');date.className='key-date';date.textContent=item.date;
-  top.append(plan,date);
-  const value=document.createElement('div');value.className='key-value';
-  const code=document.createElement('code');code.textContent=item.key;
-  const copy=document.createElement('button');copy.className='key-copy';copy.textContent='COPY';
-  copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(item.key);notify('Demo key copied')}catch(e){notify(item.key)}});
-  value.append(code,copy);
-  const state=document.createElement('span');state.className='key-state';state.textContent=item.status;
-  card.append(top,value,state);list.append(card);
+  const plan=document.createElement('div');plan.className='key-plan';plan.textContent=(item.plan||'Package')+' Package';
+  const date=document.createElement('div');date.className='key-date';date.textContent=item.date||'';top.append(plan,date);
+  const value=document.createElement('div');value.className='key-value';const code=document.createElement('code');code.textContent=item.key;
+  const copy=document.createElement('button');copy.className='key-copy';copy.textContent='COPY';copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(item.key);notify('License key copied')}catch(e){notify(item.key)}});value.append(code,copy);
+  const state=document.createElement('span');state.className='key-state';state.textContent=item.status||'PAYMENT VERIFIED';card.append(top,value,state);
+  const a=document.createElement('a');a.className='key-apk-download';a.href=APK_DOWNLOAD_URL;a.target='_blank';a.rel='noopener noreferrer';a.textContent='DOWNLOAD APK';card.append(a);list.append(card);
  });
- document.getElementById('keysCount').textContent=demoKeys.length+' KEYS';
+ document.getElementById('keysCount').textContent=saved.length+' KEYS';
+ const foot=document.querySelector('.keys-footnote');if(foot)foot.textContent='Only keys verified on this device are listed here. Keep a copy of your license key.';
 }
 function openKeys(){keysPage.classList.add('open');keysPage.setAttribute('aria-hidden','false')}
 function closeKeys(){keysPage.classList.remove('open');keysPage.setAttribute('aria-hidden','true')}
-document.getElementById('storeToggle').addEventListener('click',openKeys);
-document.getElementById('backStore').addEventListener('click',closeKeys);
-
-renderKeys();
-renderStock();
+document.getElementById('storeToggle').addEventListener('click',openKeys);document.getElementById('backStore').addEventListener('click',closeKeys);
+try{currentOrder=JSON.parse(sessionStorage.getItem('angryModPendingOrder')||'null')}catch(e){}
+renderKeys();renderStock();
 </script>
 </body>
 </html>
