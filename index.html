@@ -249,7 +249,8 @@ footer{text-align:center;color:#717b8b;font-size:.78rem;line-height:1.8;padding:
 <div class="toast" id="toast" role="status"></div>
 <div class="modal-bg" id="modalBg" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal"><h3 id="modalTitle">Preview Only</h3><p id="modalText">Payment gateway and key delivery are not connected in this visual preview.</p><button id="close">Close</button></div></div>
 <script>
-const APK_DOWNLOAD_URL = "https://drive.google.com/uc?export=download&id=1kfz8Xd5sDWjheaH-Uuzn8mW-qB9Hi9f4";
+const DEFAULT_APK_DOWNLOAD_URL = "https://drive.google.com/uc?export=download&id=1kfz8Xd5sDWjheaH-Uuzn8mW-qB9Hi9f4";
+let APK_DOWNLOAD_URL = DEFAULT_APK_DOWNLOAD_URL;
 const featuredApkButton=document.getElementById('featuredApkButton');
 const purchaseApkButton=document.getElementById('purchaseApkButton');
 const cards=[...document.querySelectorAll('.package')];
@@ -257,77 +258,164 @@ const toast=document.getElementById('toast');
 const modal=document.getElementById('modalBg');
 const deliveryOverlay=document.getElementById('deliveryOverlay');
 const verifyButton=document.getElementById('verifyPaymentButton');
-let selected=cards[0], currentOrder=null, busy=false;
+const buyButton=document.getElementById('buyPackage');
+let selected=cards.find(c=>c.classList.contains('selected'))||cards[0], currentOrder=null, busy=false, verifyInFlight=false;
+let storeReady=false, pollTimer=null, pollStartedAt=0, returnFromCheckout=false, pendingReturnChecks=0;
 const purchasedKeysKey='angryModVerifiedKeys';
-function notify(msg){toast.textContent=msg;toast.classList.add('show');clearTimeout(notify.t);notify.t=setTimeout(()=>toast.classList.remove('show'),2600)}
+function notify(msg){toast.textContent=msg;toast.classList.add('show');clearTimeout(notify.t);notify.t=setTimeout(()=>toast.classList.remove('show'),3000)}
 function openModal(title,msg){document.getElementById('modalTitle').textContent=title;document.getElementById('modalText').textContent=msg;modal.classList.add('open')}
-function wireApkButton(button){button.href=APK_DOWNLOAD_URL;button.target='_blank';button.rel='noopener noreferrer';button.removeAttribute('aria-disabled')}
+function money(v){return '₹'+Number(v||0).toLocaleString('en-IN',{maximumFractionDigits:2})}
+function wireApkButton(button){if(!button)return;button.href=APK_DOWNLOAD_URL;button.target='_blank';button.rel='noopener noreferrer';button.removeAttribute('aria-disabled')}
+function applyApkUrl(url){if(typeof url==='string'&&/^https:\/\//i.test(url)){APK_DOWNLOAD_URL=url;wireApkButton(featuredApkButton);wireApkButton(purchaseApkButton);document.querySelectorAll('.key-apk-download').forEach(a=>a.href=APK_DOWNLOAD_URL)}}
 wireApkButton(featuredApkButton);
 wireApkButton(purchaseApkButton);
 function renderStock(){
- cards.forEach(c=>{c.querySelector('.badge').textContent='STOCK STATUS: CHECKOUT';c.disabled=false});
+ let availableSelected=!!selected&&!selected.disabled;
+ cards.forEach(c=>{
+  const badge=c.querySelector('.badge');
+  if(!c.dataset.stockLoaded){badge.textContent='CHECKING STOCK…';c.disabled=true;return;}
+  const count=Number(c.dataset.stock||0), active=c.dataset.active!=='false';
+  if(!active||count<=0){badge.textContent='OUT OF STOCK';c.disabled=true;c.classList.remove('selected');}
+  else{badge.textContent=`IN STOCK: ${count}`;c.disabled=false;}
+ });
+ if(selected?.disabled){selected=cards.find(c=>!c.disabled)||null;cards.forEach(c=>c.classList.toggle('selected',c===selected));}
+ buyButton.disabled=busy||!storeReady||!selected||selected.disabled;
 }
-cards.forEach(c=>c.addEventListener('click',()=>{cards.forEach(x=>x.classList.remove('selected'));c.classList.add('selected');selected=c;notify(`${c.dataset.days}-day package selected`)}));
-function setBusy(value){busy=value;document.getElementById('buyPackage').disabled=value;verifyButton.disabled=value;verifyButton.textContent=value?'PLEASE WAIT…':'I HAVE PAID — VERIFY'}
+async function loadStoreConfig(){
+ storeReady=false;renderStock();
+ try{
+  const response=await fetch('/api/store-config',{headers:{Accept:'application/json'},cache:'no-store'});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok||!data.success||!Array.isArray(data.packages))throw new Error(data.error||'Store settings could not be loaded');
+  const byDuration=new Map(data.packages.map(p=>[String(p.duration),p]));
+  cards.forEach(c=>{
+   const duration=c.dataset.days==='1'?'1 Day':`${c.dataset.days} Days`, p=byDuration.get(duration);
+   c.dataset.stockLoaded='1';
+   if(!p){c.dataset.stock='0';c.dataset.active='false';return;}
+   c.dataset.price=String(Number(p.price)||0);c.dataset.old=String(Number(p.old_price)||0);c.dataset.stock=String(Number(p.available_stock)||0);c.dataset.active=String(p.active===true);
+   c.querySelector('.price').textContent=money(p.price);
+   c.querySelector('.old').textContent=Number(p.old_price)>0?money(p.old_price):'';
+   c.querySelector('.old').style.visibility=Number(p.old_price)>0?'visible':'hidden';
+  });
+  if(data.apk_download_url)applyApkUrl(data.apk_download_url);
+  storeReady=true;renderStock();
+ }catch(e){
+  cards.forEach(c=>{c.dataset.stockLoaded='1';c.dataset.stock='0';c.dataset.active='false';});
+  storeReady=false;renderStock();
+  notify('Store prices/stock could not load. Refresh and try again.');
+  console.error('Store config error:',e.message);
+ }
+}
+cards.forEach(c=>c.addEventListener('click',()=>{
+ if(c.disabled)return;
+ cards.forEach(x=>x.classList.remove('selected'));c.classList.add('selected');selected=c;
+ buyButton.disabled=busy||!storeReady||selected.disabled;notify(`${c.querySelector('.days').textContent} package selected`)
+}));
+function setBusy(value){busy=value;buyButton.disabled=value||!storeReady||!selected||selected.disabled;verifyButton.disabled=value;verifyButton.textContent=value?'PLEASE WAIT…':'VERIFY PAYMENT';}
+function setOrderStatus(status,description,title){
+ document.getElementById('deliveryTitle').textContent=title||'Order Status';
+ document.querySelector('.delivery-status').innerHTML='<span></span> '+status;
+ document.querySelector('.delivery-desc').textContent=description;
+}
+function ensureCancelButton(){
+ let b=document.getElementById('cancelPaymentButton');if(b)return b;
+ b=document.createElement('button');b.id='cancelPaymentButton';b.type='button';b.className='delivery-done';b.style.marginTop='9px';b.textContent='CANCEL PAYMENT';
+ verifyButton.insertAdjacentElement('afterend',b);
+ b.addEventListener('click',()=>markCancelled(true));return b;
+}
 function showPending(order){
  currentOrder=order;
  try{sessionStorage.setItem('angryModPendingOrder',JSON.stringify(order))}catch(e){}
+ document.getElementById('deliveryTitle').textContent='Order Status';
  document.getElementById('deliveredKey').textContent='Not issued yet';
  document.getElementById('deliveredPlan').textContent=`Package: ${order.duration}`;
- document.getElementById('deliveredPrice').textContent=`₹${order.amount}`;
+ document.getElementById('deliveredPrice').textContent=money(order.amount);
  document.getElementById('deliveredKeyBox').hidden=true;
  purchaseApkButton.hidden=true;
- document.querySelector('.delivery-status').innerHTML='<span></span> PAYMENT NOT VERIFIED';
- document.querySelector('.delivery-desc').textContent='Complete payment in the checkout tab, then return here and verify your payment.';
+ setOrderStatus('PAYMENT NOT VERIFIED','Finish payment in the checkout tab. Your key will appear here automatically after the server confirms payment.','Order Status');
  document.querySelector('.delivery-note').textContent='No key is issued until the server confirms payment.';
+ ensureCancelButton().hidden=false;
  deliveryOverlay.classList.add('open');deliveryOverlay.setAttribute('aria-hidden','false');
+ startAutoVerify();
 }
 async function createOrder(){
  if(busy)return;
+ if(!storeReady){notify('Checking current prices and stock…');await loadStoreConfig();if(!storeReady)return;}
+ if(!selected||selected.disabled){notify('This package is OUT OF STOCK.');return;}
  setBusy(true);
+ let checkoutWindow=null;
+ // Open a blank tab synchronously so mobile browsers are less likely to block checkout.
+ try{checkoutWindow=window.open('about:blank','_blank')}catch(e){}
  try{
   const duration=selected.dataset.days==='1'?'1 Day':`${selected.dataset.days} Days`;
-  const response=await fetch('/api/create-order',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({duration})});
+  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),25000);
+  let response;try{response=await fetch('/api/create-order',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({duration}),signal:controller.signal,cache:'no-store'});}finally{clearTimeout(timeout)}
   const data=await response.json().catch(()=>({}));
-  if(!response.ok||!data.success||!data.order_id||!data.checkout_url)throw new Error(data.error||'Could not create payment order.');
-  showPending({order_id:data.order_id,duration:data.duration||duration,amount:data.amount||Number(selected.dataset.price)});
-  const win=window.open(data.checkout_url,'_blank','noopener,noreferrer');
-  if(!win){notify('Checkout opened in this tab because pop-ups are blocked.');window.location.href=data.checkout_url;return;}
-  notify('Payment checkout opened. Finish payment, then verify here.');
- }catch(e){openModal('Payment Could Not Start',e.message||'Please try again later.');}
+  if(!response.ok||!data.success||!data.order_id||!data.checkout_url)throw new Error(data.error||`Could not create payment order (HTTP ${response.status}).`);
+  showPending({order_id:data.order_id,duration:data.duration||duration,amount:Number(data.amount??selected.dataset.price)});
+  if(checkoutWindow&&!checkoutWindow.closed){checkoutWindow.location.replace(data.checkout_url)}
+  else{if(checkoutWindow)try{checkoutWindow.close()}catch(e){};window.location.assign(data.checkout_url);return;}
+  notify('Checkout opened. Payment status and key delivery will update automatically.');
+ }catch(e){if(checkoutWindow&&!checkoutWindow.closed)try{checkoutWindow.close()}catch(ignore){};openModal('Payment Could Not Start',e.name==='AbortError'?'Gateway took too long to respond. Please try again in a moment.':(e.message||'Please try again later.'));}
  finally{setBusy(false)}
 }
-async function verifyPayment(){
- if(busy)return;
+function markCancelled(userAction=false){
+ if(!currentOrder)return;
+ returnFromCheckout=false;
+ setOrderStatus('PAYMENT CANCELLED ❌','Payment has not been confirmed. No key was issued. If you did pay, wait a moment and tap VERIFY PAYMENT so the server can check again.','Payment Cancelled');
+ document.querySelector('.delivery-note').textContent='No key was issued. A later verified payment will still be detected automatically.';
+ ensureCancelButton().hidden=true;
+ if(userAction)notify('Payment marked as cancelled on this page.');
+}
+async function verifyPayment(options={}){
+ const automatic=!!options.automatic;
+ if(verifyInFlight)return;
  if(!currentOrder){try{currentOrder=JSON.parse(sessionStorage.getItem('angryModPendingOrder')||'null')}catch(e){}}
- if(!currentOrder?.order_id){notify('No pending order found. Tap BUY NOW first.');return;}
- setBusy(true);
+ if(!currentOrder?.order_id){if(!automatic)notify('No pending order found. Tap BUY NOW first.');return;}
+ verifyInFlight=true;if(!automatic)setBusy(true);
  try{
-  const response=await fetch('/api/verify-payment',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({order_id:currentOrder.order_id})});
+  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),12000);
+  let response;try{response=await fetch('/api/verify-payment',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({order_id:currentOrder.order_id}),signal:controller.signal,cache:'no-store'});}finally{clearTimeout(timeout)}
   const data=await response.json().catch(()=>({}));
-  if(!response.ok||!data.success||!data.license_key){
-   if(data.payment_status==='pending'){notify('Payment is not confirmed yet. Wait a moment and retry.');return;}
-   throw new Error(data.message||data.error||'Payment not verified yet. No key was issued.');
+  if(response.ok&&data.success&&data.license_key){
+   document.getElementById('deliveryTitle').textContent='Purchase Complete';
+   document.getElementById('deliveredKey').textContent=data.license_key;
+   document.getElementById('deliveredPlan').textContent=`Package: ${data.duration||currentOrder.duration}`;
+   document.getElementById('deliveredPrice').textContent=money(currentOrder.amount);
+   document.getElementById('deliveredKeyBox').hidden=false;purchaseApkButton.hidden=false;wireApkButton(purchaseApkButton);
+   setOrderStatus('PAYMENT VERIFIED','Payment confirmed. Your license key is ready.','Purchase Complete');
+   document.querySelector('.delivery-note').textContent='Keep your key private. Download the APK using the button below.';
+   ensureCancelButton().hidden=true;
+   let saved=[];try{saved=JSON.parse(localStorage.getItem(purchasedKeysKey)||'[]');if(!Array.isArray(saved))saved=[]}catch(e){}
+   if(!saved.some(x=>x.order_id===data.order_id))saved.unshift({order_id:data.order_id,key:data.license_key,plan:data.duration||currentOrder.duration,date:new Date().toLocaleString(),purchasedAt:new Date().toISOString(),status:'PAYMENT VERIFIED'});
+   try{localStorage.setItem(purchasedKeysKey,JSON.stringify(saved))}catch(e){}
+   try{sessionStorage.removeItem('angryModPendingOrder')}catch(e){}
+   clearInterval(pollTimer);pollTimer=null;currentOrder=null;renderKeys();notify('Payment verified and key delivered automatically.');return;
   }
-  document.getElementById('deliveredKey').textContent=data.license_key;
-  document.getElementById('deliveredPlan').textContent=`Package: ${data.duration||currentOrder.duration}`;
-  document.getElementById('deliveredPrice').textContent=`₹${currentOrder.amount}`;
-  document.getElementById('deliveredKeyBox').hidden=false;
-  purchaseApkButton.hidden=false;
-  document.querySelector('.delivery-status').innerHTML='<span></span> PAYMENT VERIFIED';
-  document.querySelector('.delivery-desc').textContent='Payment confirmed. Your license key is ready.';
-  document.querySelector('.delivery-note').textContent='Keep your key private. Download the APK using the button below.';
-  let saved=[];try{saved=JSON.parse(localStorage.getItem(purchasedKeysKey)||'[]');if(!Array.isArray(saved))saved=[]}catch(e){}
-  if(!saved.some(x=>x.order_id===data.order_id))saved.unshift({order_id:data.order_id,key:data.license_key,plan:data.duration||currentOrder.duration,date:new Date().toLocaleString(),purchasedAt:new Date().toISOString(),status:'PAYMENT VERIFIED'});
-  try{localStorage.setItem(purchasedKeysKey,JSON.stringify(saved))}catch(e){}
-  try{sessionStorage.removeItem('angryModPendingOrder')}catch(e){}
-  renderKeys();notify('Payment verified and key delivered.');
- }catch(e){notify(e.message||'Verification failed. Retry shortly.');}
- finally{setBusy(false)}
+  if(data.payment_status==='expired'||data.payment_status==='cancelled'){
+   markCancelled(false);clearInterval(pollTimer);pollTimer=null;return;
+  }
+  if(data.payment_status==='pending'||response.ok&&data.success===false){
+   if(returnFromCheckout){pendingReturnChecks++;if(pendingReturnChecks>=2)markCancelled(false);}
+   if(!automatic)notify('Payment is not confirmed yet. We will keep checking automatically.');
+   return;
+  }
+  if(!automatic)notify(data.message||data.error||'Payment is not verified yet. We will retry automatically.');
+ }catch(e){if(!automatic)notify(e.name==='AbortError'?'Verification is taking too long; retrying automatically.':(e.message||'Verification failed; retrying automatically.'));}
+ finally{verifyInFlight=false;if(!automatic)setBusy(false)}
+}
+function startAutoVerify(){
+ clearInterval(pollTimer);pollStartedAt=Date.now();pollTimer=setInterval(()=>{
+  if(!currentOrder)return;
+  const elapsed=Date.now()-pollStartedAt;
+  if(elapsed>10*60*1000){clearInterval(pollTimer);pollTimer=null;return;}
+  if(document.visibilityState==='visible')verifyPayment({automatic:true});
+ },4000);
+ setTimeout(()=>{if(currentOrder&&document.visibilityState==='visible')verifyPayment({automatic:true})},1200);
 }
 function closeDelivery(){deliveryOverlay.classList.remove('open');deliveryOverlay.setAttribute('aria-hidden','true')}
+verifyButton.addEventListener('click',()=>verifyPayment());
 document.getElementById('buyPackage').addEventListener('click',createOrder);
-verifyButton.addEventListener('click',verifyPayment);
 document.getElementById('deliveryClose').addEventListener('click',closeDelivery);
 document.getElementById('deliveryDone').addEventListener('click',closeDelivery);
 document.getElementById('copyKey').addEventListener('click',async()=>{const key=document.getElementById('deliveredKey').textContent;if(!key||key==='Not issued yet'){notify('No key has been issued yet.');return}try{await navigator.clipboard.writeText(key);notify('License key copied')}catch(e){notify(key)}});
@@ -353,8 +441,10 @@ function renderKeys(){
 function openKeys(){keysPage.classList.add('open');keysPage.setAttribute('aria-hidden','false')}
 function closeKeys(){keysPage.classList.remove('open');keysPage.setAttribute('aria-hidden','true')}
 document.getElementById('storeToggle').addEventListener('click',openKeys);document.getElementById('backStore').addEventListener('click',closeKeys);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&currentOrder){returnFromCheckout=true;pendingReturnChecks=0;verifyPayment({automatic:true});}});
+window.addEventListener('pageshow',()=>{if(currentOrder){returnFromCheckout=true;pendingReturnChecks=0;verifyPayment({automatic:true});}});
 try{currentOrder=JSON.parse(sessionStorage.getItem('angryModPendingOrder')||'null')}catch(e){}
-renderKeys();renderStock();
+renderKeys();loadStoreConfig().then(()=>{if(currentOrder){deliveryOverlay.classList.add('open');deliveryOverlay.setAttribute('aria-hidden','false');startAutoVerify();}});
 </script>
 </body>
 </html>
