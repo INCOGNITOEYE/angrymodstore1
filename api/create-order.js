@@ -57,7 +57,11 @@ export default async function handler(req, res) {
     const gatewayResponse = await fetch("https://famgateway.in/api/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json", "X-Api-Key": FAMGATE_API_KEY },
-      body: JSON.stringify({ amount, customer_name: "AngryMod Customer" })
+      body: JSON.stringify({
+        amount,
+        customer_name: "AngryMod Customer",
+        redirect_url: `${(process.env.SITE_URL || "https://angrymodstore1.vercel.app").replace(/\/$/, "")}/?payment_return=1`
+      })
     });
     const gatewayText = await gatewayResponse.text();
     let gatewayResult;
