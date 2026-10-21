@@ -34,6 +34,12 @@ h2{margin:0;font-size:clamp(1.2rem,4vw,1.7rem);letter-spacing:-.04em}
 .package{position:relative;min-height:82px;border:1px solid rgba(205,145,255,.19);border-radius:21px;padding:18px;background:linear-gradient(145deg,rgba(255,255,255,.085),rgba(126,62,183,.045));color:var(--ink);text-align:left;font:inherit;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.1);transition:transform .24s cubic-bezier(.2,.8,.25,1.15),background .2s,border-color .2s}
 .package:hover{transform:translateY(-2px);background:rgba(255,255,255,.095)}
 .package:active{transform:scale(.985)}
+.package.out-of-stock{border-color:rgba(255,115,145,.34);background:linear-gradient(145deg,rgba(255,89,123,.09),rgba(126,62,183,.045));}
+.package.out-of-stock .badge{border-color:rgba(255,115,145,.42);background:rgba(255,70,110,.13);color:#ffb6c4}
+.setup:disabled{opacity:.7;cursor:wait;filter:saturate(.75)}
+.delivery-card.cancelled .delivery-check{background:linear-gradient(145deg,#ffd9e0,#ff8ca3);color:#4c1020}
+.delivery-card.cancelled .delivery-status{border-color:rgba(255,115,145,.4);background:rgba(255,70,110,.10);color:#ffc0cc}
+#verifyPaymentButton,#cancelPaymentButton{display:none!important}
 .package.selected{border-color:rgba(202,131,255,.82);background:linear-gradient(145deg,rgba(151,75,220,.16),rgba(126,62,183,.07));box-shadow:inset 0 1px 0 rgba(205,145,255,.19),0 0 0 2px rgba(169,231,189,.06);animation:select .28s ease-out}
 @keyframes select{0%{transform:scale(.975)}70%{transform:scale(1.012)}100%{transform:scale(1)}}
 .badge{position:absolute;right:12px;top:12px;border:1px solid rgba(196,124,255,.34);border-radius:8px;padding:5px 7px;background:rgba(155,78,219,.13);color:#ebd5ff;font-size:.66rem;font-weight:800;letter-spacing:.04em}
@@ -225,11 +231,11 @@ footer{text-align:center;color:#717b8b;font-size:.78rem;line-height:1.8;padding:
 </main>
 
 <div class="delivery-overlay" id="deliveryOverlay" aria-hidden="true">
-  <section class="delivery-card" role="dialog" aria-modal="true" aria-labelledby="deliveryTitle">
+  <section class="delivery-card" id="deliveryCard" role="dialog" aria-modal="true" aria-labelledby="deliveryTitle">
     <button class="delivery-close" id="deliveryClose" aria-label="Close key page">×</button>
     <div class="delivery-check">✓</div>
     <div class="delivery-kicker">ANGRY MOD · ORDER STATUS</div>
-    <h2 id="deliveryTitle">Purchase Complete</h2>
+    <h2 id="deliveryTitle">Order Status</h2>
     <p class="delivery-desc">Complete payment in the checkout tab, then return here and verify your payment.</p>
     <div class="delivery-status"><span></span> PAYMENT NOT VERIFIED</div>
     <div class="key-box" id="deliveredKeyBox" hidden>
@@ -241,7 +247,7 @@ footer{text-align:center;color:#717b8b;font-size:.78rem;line-height:1.8;padding:
     <p class="purchase-apk-note" id="purchaseApkNote">Download the app associated with this key.</p>
     <div class="delivery-details"><span id="deliveredPlan">Package: 1 Day</span><strong id="deliveredPrice">₹49</strong></div>
     <p class="delivery-note">A license key will appear only after the server confirms your payment.</p>
-    <button class="delivery-done" id="verifyPaymentButton" type="button">I HAVE PAID — VERIFY</button>
+    <button class="delivery-done" id="verifyPaymentButton" type="button" hidden>VERIFY PAYMENT</button>
     <button class="delivery-done" id="deliveryDone" type="button" style="margin-top:9px">CLOSE</button>
   </section>
 </div>
@@ -270,16 +276,17 @@ function applyApkUrl(url){if(typeof url==='string'&&/^https:\/\//i.test(url)){AP
 wireApkButton(featuredApkButton);
 wireApkButton(purchaseApkButton);
 function renderStock(){
- let availableSelected=!!selected&&!selected.disabled;
  cards.forEach(c=>{
   const badge=c.querySelector('.badge');
-  if(!c.dataset.stockLoaded){badge.textContent='CHECKING STOCK…';c.disabled=true;return;}
+  if(!c.dataset.stockLoaded){badge.textContent='CHECKING STOCK…';c.disabled=false;c.classList.remove('out-of-stock');return;}
   const count=Number(c.dataset.stock||0), active=c.dataset.active!=='false';
-  if(!active||count<=0){badge.textContent='OUT OF STOCK';c.disabled=true;c.classList.remove('selected');}
-  else{badge.textContent=`IN STOCK: ${count}`;c.disabled=false;}
+  const out=!active||count<=0;
+  c.classList.toggle('out-of-stock',out);
+  badge.textContent=out?'OUT OF STOCK':`IN STOCK: ${count}`;
+  // Keep sold-out packages selectable so BUY NOW can show an explanatory popup.
+  c.disabled=false;
  });
- if(selected?.disabled){selected=cards.find(c=>!c.disabled)||null;cards.forEach(c=>c.classList.toggle('selected',c===selected));}
- buyButton.disabled=busy||!storeReady||!selected||selected.disabled;
+ buyButton.disabled=busy||!storeReady||!selected;
 }
 async function loadStoreConfig(){
  storeReady=false;renderStock();
@@ -307,11 +314,10 @@ async function loadStoreConfig(){
  }
 }
 cards.forEach(c=>c.addEventListener('click',()=>{
- if(c.disabled)return;
  cards.forEach(x=>x.classList.remove('selected'));c.classList.add('selected');selected=c;
- buyButton.disabled=busy||!storeReady||selected.disabled;notify(`${c.querySelector('.days').textContent} package selected`)
+ buyButton.disabled=busy||!storeReady;notify(`${c.querySelector('.days').textContent} package selected`)
 }));
-function setBusy(value){busy=value;buyButton.disabled=value||!storeReady||!selected||selected.disabled;verifyButton.disabled=value;verifyButton.textContent=value?'PLEASE WAIT…':'VERIFY PAYMENT';}
+function setBusy(value){busy=value;buyButton.disabled=value||!storeReady||!selected;verifyButton.disabled=true;}
 function setOrderStatus(status,description,title){
  document.getElementById('deliveryTitle').textContent=title||'Order Status';
  document.querySelector('.delivery-status').innerHTML='<span></span> '+status;
@@ -324,9 +330,12 @@ function ensureCancelButton(){
  b.addEventListener('click',()=>markCancelled(true));return b;
 }
 function showPending(order){
+ document.getElementById('deliveryCard').classList.remove('cancelled');document.querySelector('.delivery-check').textContent='✓';
+ verifyButton.hidden=true;
  currentOrder=order;
  try{sessionStorage.setItem('angryModPendingOrder',JSON.stringify(order))}catch(e){}
  document.getElementById('deliveryTitle').textContent='Order Status';
+ document.getElementById('deliveryCard').classList.remove('cancelled');document.querySelector('.delivery-check').textContent='✓';
  document.getElementById('deliveredKey').textContent='Not issued yet';
  document.getElementById('deliveredPlan').textContent=`Package: ${order.duration}`;
  document.getElementById('deliveredPrice').textContent=money(order.amount);
@@ -334,14 +343,16 @@ function showPending(order){
  purchaseApkButton.hidden=true;
  setOrderStatus('PAYMENT NOT VERIFIED','Finish payment in the checkout tab. Your key will appear here automatically after the server confirms payment.','Order Status');
  document.querySelector('.delivery-note').textContent='No key is issued until the server confirms payment.';
- ensureCancelButton().hidden=false;
+ ensureCancelButton().hidden=true;
  deliveryOverlay.classList.add('open');deliveryOverlay.setAttribute('aria-hidden','false');
  startAutoVerify();
 }
 async function createOrder(){
  if(busy)return;
  if(!storeReady){notify('Checking current prices and stock…');await loadStoreConfig();if(!storeReady)return;}
- if(!selected||selected.disabled){notify('This package is OUT OF STOCK.');return;}
+ if(!selected){openModal('SELECT A PACKAGE','Please select a package first.');return;}
+ const selectedCount=Number(selected.dataset.stock||0), selectedActive=selected.dataset.active!=='false';
+ if(!selectedActive||selectedCount<=0){openModal('OUT OF STOCK','Sorry, this package is currently out of stock. Please choose another package or check back later.');return;}
  setBusy(true);
  let checkoutWindow=null;
  // Open a blank tab synchronously so mobile browsers are less likely to block checkout.
@@ -362,10 +373,12 @@ async function createOrder(){
 function markCancelled(userAction=false){
  if(!currentOrder)return;
  returnFromCheckout=false;
- setOrderStatus('PAYMENT CANCELLED ❌','Payment has not been confirmed. No key was issued. If you did pay, wait a moment and tap VERIFY PAYMENT so the server can check again.','Payment Cancelled');
- document.querySelector('.delivery-note').textContent='No key was issued. A later verified payment will still be detected automatically.';
- ensureCancelButton().hidden=true;
- if(userAction)notify('Payment marked as cancelled on this page.');
+ const card=document.getElementById('deliveryCard');card.classList.add('cancelled');
+ document.querySelector('.delivery-check').textContent='×';
+ setOrderStatus('PAYMENT CANCELLED ❌','Payment was not confirmed. No license key was issued. If you completed payment, the page will keep checking and update automatically once the server confirms it.','Purchase Cancelled');
+ document.querySelector('.delivery-note').textContent='Purchase cancelled. No key has been issued.';
+ verifyButton.hidden=true;ensureCancelButton().hidden=true;
+ if(userAction)notify('Purchase cancelled.');
 }
 async function verifyPayment(options={}){
  const automatic=!!options.automatic;
@@ -378,6 +391,7 @@ async function verifyPayment(options={}){
   let response;try{response=await fetch('/api/verify-payment',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({order_id:currentOrder.order_id}),signal:controller.signal,cache:'no-store'});}finally{clearTimeout(timeout)}
   const data=await response.json().catch(()=>({}));
   if(response.ok&&data.success&&data.license_key){
+   document.getElementById('deliveryCard').classList.remove('cancelled');document.querySelector('.delivery-check').textContent='✓';
    document.getElementById('deliveryTitle').textContent='Purchase Complete';
    document.getElementById('deliveredKey').textContent=data.license_key;
    document.getElementById('deliveredPlan').textContent=`Package: ${data.duration||currentOrder.duration}`;
@@ -414,7 +428,7 @@ function startAutoVerify(){
  setTimeout(()=>{if(currentOrder&&document.visibilityState==='visible')verifyPayment({automatic:true})},1200);
 }
 function closeDelivery(){deliveryOverlay.classList.remove('open');deliveryOverlay.setAttribute('aria-hidden','true')}
-verifyButton.addEventListener('click',()=>verifyPayment());
+verifyButton.addEventListener('click',()=>verifyPayment());verifyButton.hidden=true;
 document.getElementById('buyPackage').addEventListener('click',createOrder);
 document.getElementById('deliveryClose').addEventListener('click',closeDelivery);
 document.getElementById('deliveryDone').addEventListener('click',closeDelivery);
