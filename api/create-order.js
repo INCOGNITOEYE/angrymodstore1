@@ -13,14 +13,10 @@ export default async function handler(req, res) {
     const {
       SUPABASE_URL,
       SUPABASE_SERVICE_ROLE_KEY,
-      FAMGATEWAY_API_KEY
+      FAMGATE_API_KEY
     } = process.env;
 
-    if (
-      !SUPABASE_URL ||
-      !SUPABASE_SERVICE_ROLE_KEY ||
-      !FAMGATEWAY_API_KEY
-    ) {
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !FAMGATE_API_KEY) {
       return res.status(500).json({
         success: false,
         error: "Server configuration incomplete"
@@ -28,51 +24,33 @@ export default async function handler(req, res) {
     }
 
     const duration = req.body?.duration;
+    const allowedDurations = ["1 Day", "7 Days", "15 Days", "30 Days"];
 
-    const allowedDurations = [
-      "1 Day",
-      "7 Days",
-      "15 Days",
-      "30 Days"
-    ];
-
-    if (
-      typeof duration !== "string" ||
-      !allowedDurations.includes(duration)
-    ) {
+    if (typeof duration !== "string" || !allowedDurations.includes(duration)) {
       return res.status(400).json({
         success: false,
         error: "Invalid package duration"
       });
     }
 
-    const supabaseHeaders = {
+    const dbHeaders = {
       apikey: SUPABASE_SERVICE_ROLE_KEY,
       Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
       "Content-Type": "application/json"
     };
 
-    // Get the active package and its price from Supabase.
-    const packageUrl = new URL(
-      "/rest/v1/packages",
-      SUPABASE_URL
-    );
-
+    const packageUrl = new URL("/rest/v1/packages", SUPABASE_URL);
     packageUrl.searchParams.set("duration", `eq.${duration}`);
     packageUrl.searchParams.set("active", "eq.true");
     packageUrl.searchParams.set("select", "duration,price");
     packageUrl.searchParams.set("limit", "1");
 
     const packageResponse = await fetch(packageUrl, {
-      headers: supabaseHeaders
+      headers: dbHeaders
     });
 
     if (!packageResponse.ok) {
-      console.error(
-        "Package lookup failed:",
-        packageResponse.status
-      );
-
+      console.error("Package lookup failed:", packageResponse.status);
       return res.status(502).json({
         success: false,
         error: "Could not load package price"
@@ -95,7 +73,6 @@ export default async function handler(req, res) {
 
     const amount = Number(selectedPackage.price);
 
-    // Create the payment order with FamGateway.
     const gatewayResponse = await fetch(
       "https://famgateway.in/api/create-order",
       {
@@ -103,7 +80,7 @@ export default async function handler(req, res) {
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          "X-Api-Key": FAMGATEWAY_API_KEY
+          "X-Api-Key": FAMGATE_API_KEY
         },
         body: JSON.stringify({
           amount,
@@ -114,20 +91,20 @@ export default async function handler(req, res) {
 
     const gatewayResult = await gatewayResponse.json();
 
-    const gatewayOrder = gatewayResult?.data;
+    const gatewayOrder = gatewayResult?.data || gatewayResult;
     const orderId = gatewayOrder?.order_id;
     const checkoutUrl = gatewayOrder?.checkout_url;
 
     if (
       !gatewayResponse.ok ||
-      gatewayResult?.status !== "success" ||
+      gatewayResult?.status === "error" ||
       typeof orderId !== "string" ||
       typeof checkoutUrl !== "string"
     ) {
       console.error(
         "FamGateway order creation failed:",
         gatewayResponse.status,
-        gatewayResult?.message || gatewayResult?.error || "Unknown error"
+        gatewayResult?.message || gatewayResult?.error || "Unexpected response"
       );
 
       return res.status(502).json({
@@ -136,8 +113,16 @@ export default async function handler(req, res) {
       });
     }
 
-    // Only accept a checkout link hosted by FamGateway.
-    const parsedCheckoutUrl = new URL(checkoutUrl);
+    let parsedCheckoutUrl;
+
+    try {
+      parsedCheckoutUrl = new URL(checkoutUrl);
+    } catch {
+      return res.status(502).json({
+        success: false,
+        error: "Invalid checkout URL"
+      });
+    }
 
     if (
       parsedCheckoutUrl.protocol !== "https:" ||
@@ -145,37 +130,22 @@ export default async function handler(req, res) {
     ) {
       return res.status(502).json({
         success: false,
-        error: "Invalid payment checkout URL"
+        error: "Unexpected checkout URL"
       });
     }
 
-    const payableAmount = Number(
-      gatewayOrder.payable_amount ?? gatewayOrder.amount ?? amount
-    );
-
-    if (
-      !Number.isFinite(payableAmount) ||
-      payableAmount < amount
-    ) {
-      return res.status(502).json({
-        success: false,
-        error: "Invalid payment amount returned by gateway"
-      });
-    }
-
-    // Save the order as pending. Never deliver a key here.
     const orderResponse = await fetch(
       new URL("/rest/v1/store_orders", SUPABASE_URL),
       {
         method: "POST",
         headers: {
-          ...supabaseHeaders,
+          ...dbHeaders,
           Prefer: "return=minimal"
         },
         body: JSON.stringify({
           order_id: orderId,
           duration,
-          amount: payableAmount,
+          amount,
           payment_status: "pending"
         })
       }
@@ -183,9 +153,9 @@ export default async function handler(req, res) {
 
     if (!orderResponse.ok) {
       console.error(
-        "Supabase order insert failed:",
+        "Order save failed:",
         orderResponse.status,
-        (await orderResponse.text()).slice(0, 500)
+        (await orderResponse.text()).slice(0, 300)
       );
 
       return res.status(502).json({
@@ -198,11 +168,9 @@ export default async function handler(req, res) {
       success: true,
       order_id: orderId,
       duration,
-      amount: payableAmount,
+      amount,
       checkout_url: checkoutUrl,
-      qr_url: gatewayOrder.qr_url || null,
-      upi_intent: gatewayOrder.upi_intent || null,
-      message: "Payment order created. Payment is not yet confirmed."
+      message: "Order created; payment is not yet confirmed."
     });
   } catch (error) {
     console.error("Create order error:", error.message);
